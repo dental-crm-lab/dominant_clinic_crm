@@ -1,0 +1,50 @@
+{
+  "name": "dominant-crm-desktop",
+  "version": "1.0.0",
+  "description": "Dominant Dental Clinic CRM — Windows desktop app (thin client for the Railway-hosted server)",
+  "main": "main.js",
+  "author": "Dominant",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win nsis portable"
+  },
+  "devDependencies": {
+    "electron": "^31.3.1",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.dominant.crm.desktop",
+    "productName": "Dominant CRM",
+    "publish": null,
+    "directories": {
+      "output": "dist",
+      "buildResources": "."
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "setup.html",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Dominant CRM"
+    },
+    "portable": {
+      "artifactName": "DominantCRM-portable-${version}.exe"
+    }
+  }
+}

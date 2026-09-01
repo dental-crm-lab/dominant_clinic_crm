@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Dominant CRM — подключение</title>
+<style>
+  :root{
+    --ink:#15140f; --gold:#c8a15c; --paper:#f6f2e6; --muted:#a39c86; --danger:#e08c81;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;}
+  body{
+    background:var(--ink); color:var(--paper); font-family:-apple-system,'Segoe UI',Inter,sans-serif;
+    display:flex; align-items:center; justify-content:center; min-height:100vh;
+    background-image: radial-gradient(circle at 18% 20%, rgba(168,130,63,0.10), transparent 45%), radial-gradient(circle at 85% 82%, rgba(168,130,63,0.08), transparent 40%);
+  }
+  .card{ width:100%; max-width:440px; padding:0 24px; }
+  .mark{ text-align:center; margin-bottom:30px; }
+  .mark .word{ font-family:Georgia,'Cormorant Garamond',serif; font-size:38px; letter-spacing:.16em; font-weight:600; text-transform:uppercase; }
+  .mark .rule{ width:48px; height:1px; background:var(--gold); margin:14px auto; }
+  .mark .sub{ font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--muted); }
+  .panel{ background:rgba(250,248,243,0.04); border:1px solid rgba(233,229,216,0.14); border-radius:14px; padding:26px; }
+  label{ display:block; font-size:11.5px; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; font-weight:600; }
+  input{
+    width:100%; padding:11px 13px; border-radius:8px; border:1px solid rgba(233,229,216,0.18);
+    background:rgba(255,255,255,0.03); color:var(--paper); font-size:14px; margin-bottom:6px;
+  }
+  input:focus{ outline:none; border-color:var(--gold); }
+  .hint{ font-size:11.5px; color:var(--muted); margin-bottom:18px; line-height:1.5; }
+  button{
+    width:100%; padding:12px; border-radius:8px; border:1px solid var(--gold); background:var(--gold);
+    color:#1c1608; font-weight:700; font-size:13.5px; cursor:pointer; letter-spacing:.02em;
+  }
+  button:hover{ background:#dab873; }
+  .error{ color:var(--danger); font-size:12.5px; margin-top:12px; min-height:16px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="mark">
+      <div class="word">Dominant</div>
+      <div class="rule"></div>
+      <div class="sub">Dental Clinic CRM</div>
+    </div>
+    <div class="panel">
+      <label for="url">Адрес сервера клиники</label>
+      <input id="url" type="text" placeholder="dominant-crm.up.railway.app" autofocus>
+      <div class="hint">Введите адрес, который выдал Railway при развёртывании (или адрес локального сервера клиники). Указывать протокол не обязательно — https добавится сам.</div>
+      <button id="connect">Подключиться</button>
+      <div class="error" id="error"></div>
+    </div>
+  </div>
+  <script>
+    var input = document.getElementById('url');
+    var btn = document.getElementById('connect');
+    var errEl = document.getElementById('error');
+
+    window.dominantDesktop.getConfig().then(function (cfg) {
+      if (cfg && cfg.serverUrl) input.value = cfg.serverUrl.replace(/^https?:\/\//, '');
+    });
+
+    function submit() {
+      errEl.textContent = '';
+      var v = input.value.trim();
+      if (!v) { errEl.textContent = 'Укажите адрес сервера'; return; }
+      btn.disabled = true; btn.textContent = 'Подключение…';
+      window.dominantDesktop.setServerUrl(v).then(function (res) {
+        if (!res || !res.ok) {
+          errEl.textContent = (res && res.error) || 'Не удалось сохранить адрес';
+          btn.disabled = false; btn.textContent = 'Подключиться';
+        }
+        // on success the main process navigates the window away from this page
+      });
+    }
+    btn.addEventListener('click', submit);
+    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') submit(); });
+  </script>
+</body>
+</html>
