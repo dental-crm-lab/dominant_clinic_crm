@@ -1,0 +1,5 @@
+# Keep line endings as LF in the repository and on checkout, on every OS.
+# Without this, Windows checkouts drift to CRLF over time and a later
+# `git pull` sees the whole tree as "locally modified" and refuses to
+# fast-forward - purely from line endings, no real content difference.
+* text=auto eol=lf
