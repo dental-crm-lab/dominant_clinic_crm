@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#15140f">
+<script>
+(function(){
+  try {
+    var t = localStorage.getItem('dominant_theme');
+    if (t && t !== 'auto') document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+</script>
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/favicon.ico" sizes="any">
 <link rel="icon" href="/icons/icon-192.png" type="image/png">
@@ -45,7 +53,7 @@
   --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 @media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
+  :root:not([data-theme]){
     --ink:#f3f0e6;
     --ink-soft:#cdc8b8;
     --paper:#111009;
@@ -96,6 +104,56 @@
   --shadow: 0 12px 32px -16px rgba(0,0,0,0.6);
   --shadow-sm: 0 2px 10px -4px rgba(0,0,0,0.5);
 }
+:root[data-theme="sand"]{
+  --ink:#241d10;
+  --ink-soft:#4a3f28;
+  --paper:#f6ecd9;
+  --panel:#fffaf0;
+  --sidebar:#1c1710;
+  --sidebar-text:#f3e6c9;
+  --sidebar-text-dim:#b8a97e;
+  --line:#e6d6ae;
+  --line-soft:#f0e4c4;
+  --muted:#8a7a52;
+  --gold:#8a6a2f;
+  --gold-strong:#6e5322;
+  --gold-tint:#ecdcb0;
+  --success:#3f7a5c;
+  --success-tint:#e4efe8;
+  --danger:#a8392f;
+  --danger-tint:#f3ddd8;
+  --warn:#a8752f;
+  --warn-tint:#f0e0bd;
+  --info:#3f5f95;
+  --info-tint:#dee6f2;
+  --shadow: 0 12px 32px -16px rgba(60,45,10,0.28);
+  --shadow-sm: 0 2px 10px -4px rgba(60,45,10,0.18);
+}
+:root[data-theme="slate"]{
+  --ink:#f5f7fa;
+  --ink-soft:#cfd6e0;
+  --paper:#0b0d12;
+  --panel:#12151c;
+  --sidebar:#05070a;
+  --sidebar-text:#eef1f6;
+  --sidebar-text-dim:#8a92a3;
+  --line:#242a35;
+  --line-soft:#181c24;
+  --muted:#9aa3b5;
+  --gold:#d4af6a;
+  --gold-strong:#e8c483;
+  --gold-tint:#241f12;
+  --success:#7fd4ad;
+  --success-tint:#122420;
+  --danger:#f0958a;
+  --danger-tint:#2a1417;
+  --warn:#e6bd75;
+  --warn-tint:#2a2114;
+  --info:#8fb4f0;
+  --info-tint:#141c2a;
+  --shadow: 0 12px 32px -16px rgba(0,0,0,0.7);
+  --shadow-sm: 0 2px 10px -4px rgba(0,0,0,0.55);
+}
 *,*::before,*::after{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
 body{
@@ -120,7 +178,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 /* ============================= LOGIN ============================= */
 #login-screen{
-  min-height:100vh; width:100%; background:var(--ink); color:var(--paper);
+  min-height:100vh; width:100%; background:#15140f; color:#f6f2e6;
   display:flex; align-items:center; justify-content:center; padding:32px;
   background-image: radial-gradient(circle at 18% 20%, rgba(168,130,63,0.10), transparent 45%), radial-gradient(circle at 85% 82%, rgba(168,130,63,0.08), transparent 40%);
 }
@@ -196,6 +254,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .logout-btn{ margin-top:8px; width:100%; background:none; border:1px solid rgba(233,229,216,0.14); color:var(--sidebar-text-dim);
   font-size:11.5px; padding:7px; border-radius:7px; cursor:pointer; letter-spacing:.03em; }
 .logout-btn:hover{ color:#f1ede0; border-color:rgba(233,229,216,0.3); }
+.theme-switch{ display:flex; gap:7px; padding:2px 8px 12px; }
+.theme-dot{
+  width:16px;height:16px;border-radius:50%;flex:none;padding:0;cursor:pointer;
+  border:1.5px solid rgba(233,229,216,0.25);
+}
+.theme-dot.active{ border-color:#f1ede0; box-shadow:0 0 0 2px rgba(168,130,63,0.5); }
 
 .main{ flex:1; min-width:0; display:flex; flex-direction:column; height:100vh; overflow:hidden; }
 .topbar{

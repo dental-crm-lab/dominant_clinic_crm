@@ -27,8 +27,9 @@ dominant-app/
 2. **New Project → Deploy from GitHub repo** → выберите этот репозиторий.
    Railway увидит `railway.json` и соберёт проект по `Dockerfile` автоматически.
 3. Добавьте постоянный диск, чтобы данные клиники не терялись при передеплое:
-   в панели проекта откройте вкладку **Volumes** → **New Volume** → примонтируйте
-   его на путь `/data`.
+   на холсте проекта (не во вкладках Settings сервиса — там его может не быть)
+   нажмите **+ New** / **+ Add** → **Volume**, подключите его к сервису
+   `dominant_clinic_crm` и укажите путь монтирования `/data`.
 4. В **Variables** добавьте:
    ```
    DATABASE_PATH=/data/dominant.db

@@ -193,7 +193,8 @@ var state = {
     financeRange: 'month',
     financeFrom: null,
     financeTo: null,
-    modal: null // {type, ...}
+    modal: null, // {type, ...}
+    theme: (function(){ try { return localStorage.getItem('dominant_theme') || 'auto'; } catch(e){ return 'auto'; } })()
   },
   _dirty: false,
   _renderTimer: null
@@ -355,6 +356,7 @@ function renderShell(nav){
             }).join('')
   +     '</nav>'
   +     '<div class="side-foot">'
+  +       renderThemeSwitch()
   +       '<div class="side-user"><span class="login-avatar" style="' + avatarStyle(idn.name) + '">' + esc(initials(idn.name)) + '</span>'
   +         '<div><div class="name">' + esc(idn.name) + '</div><div class="role">' + esc(roleLabel) + '</div></div></div>'
   +       '<button class="logout-btn" data-action="logout">Выйти</button>'
@@ -403,6 +405,26 @@ function afterShellMount(){
   if (state.ui.modal) afterModalMount();
   var body = document.getElementById('view-body');
   if (body) body.scrollTop = 0;
+}
+
+/* ==== THEME ==== */
+var THEMES = [
+  { id: 'auto',  label: 'Авто (по системе)', a: '#15140f', b: '#a8823f' },
+  { id: 'light', label: 'Светлая',            a: '#faf8f3', b: '#a8823f' },
+  { id: 'dark',  label: 'Тёмная',             a: '#111009', b: '#c8a15c' },
+  { id: 'sand',  label: 'Тёплая',             a: '#f6ecd9', b: '#8a6a2f' },
+  { id: 'slate', label: 'Контраст',           a: '#0b0d12', b: '#d4af6a' }
+];
+function applyTheme(id){
+  state.ui.theme = id;
+  try { localStorage.setItem('dominant_theme', id); } catch(e){}
+  if (id === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', id);
+}
+function renderThemeSwitch(){
+  return '<div class="theme-switch">' + THEMES.map(function(t){
+    return '<button class="theme-dot' + (state.ui.theme===t.id?' active':'') + '" data-action="set-theme" data-theme-id="' + t.id + '" title="' + esc(t.label) + '" style="background:linear-gradient(135deg,' + t.a + ' 50%,' + t.b + ' 50%);"></button>';
+  }).join('') + '</div>';
 }
 
 /* ==== RENDER: LOGIN ==== */
@@ -1518,6 +1540,10 @@ document.body.addEventListener('click', function(e){
       render();
       if (state.ui.pinBuf.length === 4) setTimeout(attemptPinLogin, 180);
       break;
+    case 'set-theme':
+      applyTheme(el.dataset.themeId);
+      render();
+      break;
 
     case 'open-patient':
       state.ui.selectedPatientId = el.dataset.id; state.ui.patientTab='overview'; render(); break;
@@ -1647,6 +1673,22 @@ document.body.addEventListener('click', function(e){
       askConfirm('Удалить расход?', function(){ DataAPI.remove('expenses', idE).then(function(){ render(); toast('Расход удалён'); }); });
       break;
     }
+  }
+});
+
+/* Keyboard PIN entry — lets staff type the PIN on a physical keyboard instead of clicking the pad */
+document.addEventListener('keydown', function(e){
+  if (!state.ui.loginSelected || state.token) return;
+  if (e.target && /^(input|textarea)$/i.test(e.target.tagName)) return;
+  if (e.key >= '0' && e.key <= '9') {
+    if (state.ui.pinBuf.length < 4) state.ui.pinBuf += e.key;
+    render();
+    if (state.ui.pinBuf.length === 4) setTimeout(attemptPinLogin, 180);
+  } else if (e.key === 'Backspace') {
+    state.ui.pinBuf = state.ui.pinBuf.slice(0, -1);
+    render();
+  } else if (e.key === 'Escape') {
+    state.ui.loginSelected = null; state.ui.pinError = ''; render();
   }
 });
 

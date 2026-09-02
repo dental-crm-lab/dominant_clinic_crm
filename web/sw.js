@@ -3,7 +3,7 @@
    Never touches /api/ or /socket.io/ — those always go straight to the network,
    since this app is only useful against live, role-filtered clinic data. */
 
-var CACHE_NAME = 'dominant-shell-v1';
+var CACHE_NAME = 'dominant-shell-v2';
 var SHELL_FILES = [
   '/',
   '/index.html',
