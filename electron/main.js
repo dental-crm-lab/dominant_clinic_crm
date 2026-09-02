@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, shell, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -31,6 +31,19 @@ function normalizeUrl(raw) {
 }
 
 function createWindow() {
+  // The clinic's web app updates on its own (server-side) whenever we ship a
+  // fix, and it registers a service worker for PWA installability in a
+  // browser. That service worker's cache is exactly what a thin desktop
+  // client does NOT want: without this, an already-installed app could keep
+  // showing an old cached version indefinitely, install after install, even
+  // though the live server has moved on. Disable the HTTP cache and wipe any
+  // previously registered service worker + its cache on every launch, so the
+  // app always renders whatever the server is currently serving. Login token
+  // and the chosen color theme live in localStorage, which this leaves
+  // untouched, so signing in and the theme choice still persist normally.
+  var ses = session.fromPartition('persist:dominant-crm', { cache: false });
+  ses.clearStorageData({ storages: ['serviceworkers', 'cachestorage'] }).catch(function () {});
+
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
@@ -44,7 +57,8 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      session: ses
     }
   });
 

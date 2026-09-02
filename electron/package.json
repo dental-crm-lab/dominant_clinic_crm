@@ -1,6 +1,6 @@
 {
   "name": "dominant-crm-desktop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Dominant Dental Clinic CRM — Windows desktop app (thin client for the Railway-hosted server)",
   "main": "main.js",
   "author": "Dominant",
