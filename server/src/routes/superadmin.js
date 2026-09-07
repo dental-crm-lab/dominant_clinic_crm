@@ -139,4 +139,57 @@ router.get('/errors', requireSuperadmin, (req, res) => {
   })));
 });
 
+// Список пациентов с их лечениями и оплатами - единственный отчёт здесь,
+// не построенный на request_logs (см. докстроку файла). total_invoiced
+// считаем из items (qty*price) с учётом discountPct, total_paid - сумма
+// payments (см. serialize.js/invoices.js: items и payments - JSON-массивы).
+router.get('/clients', requireSuperadmin, (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit || '300', 10), 2000);
+  const offset = Math.max(parseInt(req.query.offset || '0', 10), 0);
+
+  const patients = db.prepare(
+    `SELECT * FROM patients ORDER BY createdAt DESC LIMIT ? OFFSET ?`
+  ).all(limit, offset);
+
+  const result = patients.map((p) => {
+    const treatments = db.prepare(
+      `SELECT * FROM treatments WHERE patientId = ? ORDER BY date DESC LIMIT 10`
+    ).all(p.id);
+    const invoices = db.prepare(`SELECT * FROM invoices WHERE patientId = ?`).all(p.id);
+
+    let totalInvoiced = 0;
+    let totalPaid = 0;
+    for (const inv of invoices) {
+      const items = safeParseJson(inv.items, []);
+      const gross = items.reduce((sum, it) => sum + (Number(it.qty) || 1) * (Number(it.price) || 0), 0);
+      const discountPct = Number(inv.discountPct) || 0;
+      totalInvoiced += gross * (1 - discountPct / 100);
+      const payments = safeParseJson(inv.payments, []);
+      totalPaid += payments.reduce((sum, pay) => sum + (Number(pay.amount) || 0), 0);
+    }
+
+    const lastVisit = treatments.length ? treatments[0].date : null;
+
+    return {
+      id: p.id,
+      name: p.fullName,
+      phone: p.phone,
+      total_paid: totalPaid,
+      total_invoiced: totalInvoiced,
+      last_visit: lastVisit,
+      treatments: treatments.map((t) => ({
+        description: t.procedureName,
+        price: t.price,
+        performed_at: t.date
+      }))
+    };
+  });
+
+  res.json(result);
+});
+
+function safeParseJson(str, fallback) {
+  try { return JSON.parse(str); } catch (e) { return fallback; }
+}
+
 module.exports = router;
