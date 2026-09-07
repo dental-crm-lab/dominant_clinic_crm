@@ -7,10 +7,15 @@ const { Server } = require('socket.io');
 
 const { attach } = require('./realtime');
 const { seed } = require('./seed');
+const { requestLogger } = require('./requestLog');
 
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
+app.use(requestLogger);
+
+// ---- Superadmin monitoring (отдельно от ролей клиники) ----
+app.use('/superadmin', require('./routes/superadmin'));
 
 // ---- API routes ----
 app.use('/api/auth', require('./routes/auth'));
@@ -30,14 +35,14 @@ app.get('/api/health', (req, res) => res.json({ ok: true, ts: Date.now() }));
 const webDir = path.join(__dirname, '..', '..', 'web');
 app.use(express.static(webDir, { maxAge: '1h' }));
 app.get('*', (req, res, next) => {
-  if (req.path.startsWith('/api/')) return next();
-  res.sendFile(path.join(webDir, 'index.html'));
+if (req.path.startsWith('/api/')) return next();
+res.sendFile(path.join(webDir, 'index.html'));
 });
 
 // ---- Error handler ----
 app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(err.status || 500).json({ error: 'server_error', message: err.message || 'Внутренняя ошибка сервера' });
+console.error(err);
+res.status(err.status || 500).json({ error: 'server_error', message: err.message || 'Внутренняя ошибка сервера' });
 });
 
 const server = http.createServer(app);
@@ -50,8 +55,8 @@ const PORT = process.env.PORT || 4000;
 // Idempotent: seeds demo clinic data only on a brand-new database (first
 // boot on a fresh Railway volume). Safe to leave in on every restart.
 seed().catch((e) => console.error('Seed step failed (continuing to boot):', e))
-  .then(() => {
-    server.listen(PORT, () => {
-      console.log(`Dominant CRM server listening on port ${PORT}`);
-    });
-  });
+.then(() => {
+server.listen(PORT, () => {
+console.log(`Dominant CRM server listening on port ${PORT}`);
+});
+});
