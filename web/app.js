@@ -1731,10 +1731,12 @@ document.body.addEventListener('submit', function(e){
     };
     if (id) {
       data.status = fd.get('status') || 'scheduled';
-      DataAPI.update('appointments', id, data).then(function(){ state.ui.modal=null; render(); toast('Запись сохранена'); });
+      DataAPI.update('appointments', id, data).then(function(){ state.ui.modal=null; render(); toast('Запись сохранена'); })
+        .catch(function(e){ toast((e && e.message) || 'Не удалось сохранить запись', true); });
     } else {
       data.status = 'scheduled';
-      DataAPI.add('appointments', data).then(function(){ state.ui.modal=null; render(); toast('Запись создана'); });
+      DataAPI.add('appointments', data).then(function(){ state.ui.modal=null; render(); toast('Запись создана'); })
+        .catch(function(e){ toast((e && e.message) || 'Не удалось создать запись', true); });
     }
   } else if (type === 'patient') {
     var pid = form.dataset.id;
