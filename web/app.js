@@ -1170,9 +1170,14 @@ function apptModalBody(m){
   var statusField = editing ? ('<div class="field"><label>Статус</label><select name="status">' + Object.keys(APPT_STATUS).map(function(k){ return '<option value="'+k+'"' + (status===k?' selected':'') + '>' + APPT_STATUS[k].label + '</option>'; }).join('') + '</select></div>') : '';
   var deleteBtn = editing ? '<button type="button" class="btn danger sm" data-action="delete-appt" data-id="'+m.id+'" style="margin-right:auto;">Удалить</button>' : '';
 
+  var isNewPatient = patientId === '__new__';
   return '<form data-form="appointment" data-id="' + (m.id||'') + '">'
     + '<div class="modal-body">'
-    +   '<div class="field"><label>Пациент</label><select name="patientId" required><option value="">— выбрать —</option>' + patientOptions + '</select></div>'
+    +   '<div class="field"><label>Пациент</label><select name="patientId" data-action="appt-patient-select" required><option value="">— выбрать —</option><option value="__new__"' + (isNewPatient?' selected':'') + '>+ Новый пациент (нет в списке)</option>' + patientOptions + '</select></div>'
+    +   '<div class="field-row" id="appt-new-patient-fields" style="' + (isNewPatient?'':'display:none;') + '">'
+    +     '<div class="field"><label>ФИО нового пациента</label><input name="newPatientName" placeholder="Например: Иванов Иван"></div>'
+    +     '<div class="field"><label>Телефон</label><input name="newPatientPhone" placeholder="Необязательно"></div>'
+    +   '</div>'
     +   '<div class="field-row">' + doctorField + '<div class="field"><label>Услуга</label><input name="service" list="svc-datalist" value="' + esc(service) + '" placeholder="Например: Консультация"><datalist id="svc-datalist">' + svcOptions + '</datalist></div></div>'
     +   '<div class="field-row">'
     +     '<div class="field"><label>Дата</label><input type="date" name="date" value="'+date+'" required></div>'
@@ -1701,6 +1706,14 @@ document.body.addEventListener('change', function(e){
     case 'inv-filter-status': state.ui.invFilterStatus = el.value; render(); break;
     case 'finance-from': state.ui.financeFrom = el.value; render(); break;
     case 'finance-to': state.ui.financeTo = el.value; render(); break;
+    case 'appt-patient-select': {
+      var newFields = document.getElementById('appt-new-patient-fields');
+      if (newFields) {
+        newFields.style.display = el.value === '__new__' ? '' : 'none';
+        if (el.value === '__new__') { var nameInput = newFields.querySelector('[name="newPatientName"]'); if (nameInput) nameInput.focus(); }
+      }
+      break;
+    }
   }
 });
 
@@ -1725,19 +1738,32 @@ document.body.addEventListener('submit', function(e){
   if (type === 'appointment') {
     var id = form.dataset.id;
     var time = fd.get('time'); var duration = Number(fd.get('duration')) || 30;
-    var data = {
-      patientId: fd.get('patientId'), doctorId: fd.get('doctorId'), service: fd.get('service') || 'Приём',
-      date: fd.get('date'), startTime: time, endTime: minutesToTime(timeToMinutes(time)+duration), notes: fd.get('notes') || ''
-    };
-    if (id) {
-      data.status = fd.get('status') || 'scheduled';
-      DataAPI.update('appointments', id, data).then(function(){ state.ui.modal=null; render(); toast('Запись сохранена'); })
-        .catch(function(e){ toast((e && e.message) || 'Не удалось сохранить запись', true); });
+    var chosenPatientId = fd.get('patientId');
+
+    var patientIdPromise;
+    if (chosenPatientId === '__new__') {
+      var newPatientName = (fd.get('newPatientName') || '').trim();
+      if (!newPatientName) { toast('Введите ФИО нового пациента', true); return; }
+      patientIdPromise = DataAPI.add('patients', { fullName: newPatientName, phone: (fd.get('newPatientPhone') || '').trim() });
     } else {
-      data.status = 'scheduled';
-      DataAPI.add('appointments', data).then(function(){ state.ui.modal=null; render(); toast('Запись создана'); })
-        .catch(function(e){ toast((e && e.message) || 'Не удалось создать запись', true); });
+      patientIdPromise = Promise.resolve(chosenPatientId);
     }
+
+    patientIdPromise.then(function(patientId){
+      var data = {
+        patientId: patientId, doctorId: fd.get('doctorId'), service: fd.get('service') || 'Приём',
+        date: fd.get('date'), startTime: time, endTime: minutesToTime(timeToMinutes(time)+duration), notes: fd.get('notes') || ''
+      };
+      if (id) {
+        data.status = fd.get('status') || 'scheduled';
+        return DataAPI.update('appointments', id, data).then(function(){ state.ui.modal=null; render(); toast('Запись сохранена'); })
+          .catch(function(e){ toast((e && e.message) || 'Не удалось сохранить запись', true); });
+      } else {
+        data.status = 'scheduled';
+        return DataAPI.add('appointments', data).then(function(){ state.ui.modal=null; render(); toast('Запись создана'); })
+          .catch(function(e){ toast((e && e.message) || 'Не удалось создать запись', true); });
+      }
+    }).catch(function(){ /* patient-creation failure already reported by DataAPI.add's own toast */ });
   } else if (type === 'patient') {
     var pid = form.dataset.id;
     var pdata = {
