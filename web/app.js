@@ -359,7 +359,7 @@ function renderShell(nav){
   +       renderThemeSwitch()
   +       '<div class="side-user"><span class="login-avatar" style="' + avatarStyle(idn.name) + '">' + esc(initials(idn.name)) + '</span>'
   +         '<div><div class="name">' + esc(idn.name) + '</div><div class="role">' + esc(roleLabel) + '</div></div></div>'
-  +       '<button class="logout-btn" data-action="logout">Выйти</button>'
+  +       '<button class="logout-btn" data-action="logout" title="Выйти"><span class="ic">⎋</span><span class="lbl">Выйти</span></button>'
   +     '</div>'
   +   '</aside>'
   +   '<div class="main">'
