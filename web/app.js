@@ -486,7 +486,7 @@ function renderPinPad(){
   + '<div style="text-align:center;">'
   +   '<span class="login-avatar" style="' + (sel.kind==='doctor' ? 'background:' + sel.color + ';' : avatarStyle(sel.name)) + 'width:52px;height:52px;font-size:19px;display:inline-flex;">' + esc(initials(sel.name)) + '</span>'
   +   '<div style="margin-top:10px;font-weight:600;font-size:15px;">' + esc(sel.name) + '</div>'
-  +   '<div class="hint" style="color:#a39c86;">Введите PIN-код (демо: см. настройки)</div>'
+  +   '<div class="hint" style="color:#a39c86;">Введите PIN-код</div>'
   + '</div>'
   + '<div class="pin-dots">' + dots + '</div>'
   + '<div class="pin-grid">' + keysHtml + '</div>'
@@ -1067,7 +1067,7 @@ function renderFinance(){
 /* ==== RENDER: SETTINGS/PROFILE ==== */
 function renderSettings(){
   var s = state.data.settings || {};
-  var services = (s.services||[]).slice().sort(function(a,b){ return a.category.localeCompare(b.category,'ru') || a.name.localeCompare(b.name,'ru'); });
+  var services = (s.services||[]).slice().sort(function(a,b){ return (a.category||'').localeCompare(b.category||'','ru') || (a.name||'').localeCompare(b.name||'','ru'); });
 
   var infoForm = '<div class="card card-pad" style="margin-bottom:20px;max-width:720px;">'
     + '<h2 style="font-size:16px;margin-bottom:14px;">Информация о клинике</h2>'
