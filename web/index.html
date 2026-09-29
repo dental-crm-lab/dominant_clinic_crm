@@ -358,6 +358,54 @@ tbody tr.clickable:hover{ background:var(--line-soft); }
 .tab-btn{ background:none;border:none;padding:9px 4px;margin-right:20px;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent; }
 .tab-btn.active{ color:var(--ink); border-bottom-color:var(--gold); }
 
+/* patient files: photos / x-ray / CT gallery */
+.file-type-seg{ margin-bottom:14px; }
+.file-grid{ display:flex; gap:10px; flex-wrap:wrap; }
+.file-tile{
+  width:168px; height:120px; border-radius:10px; overflow:hidden; border:1px solid var(--line);
+  cursor:pointer; position:relative; background:#15140f; flex-shrink:0;
+  display:flex; align-items:center; justify-content:center;
+}
+.file-tile img{ max-width:100%; max-height:100%; object-fit:contain; }
+.file-tile .doc-ic{ font-size:30px; color:#fff; }
+.file-tile .file-cap{
+  position:absolute; bottom:0; left:0; right:0; background:rgba(0,0,0,0.6); color:#fff;
+  font-size:10px; padding:4px 7px; display:flex; justify-content:space-between; gap:6px;
+}
+.file-tile .file-actions{ position:absolute; top:4px; right:4px; display:flex; gap:4px; }
+.file-actions button{
+  width:22px; height:22px; border:none; border-radius:5px; background:rgba(0,0,0,0.6);
+  color:#fff; font-size:11px; cursor:pointer; line-height:1;
+}
+.file-actions button.danger{ background:rgba(176,48,48,0.85); }
+.tooth-badge-select{
+  position:absolute; top:4px; left:4px; z-index:2; cursor:pointer;
+  appearance:none; -webkit-appearance:none; border-radius:9px;
+  border:1px dashed rgba(255,255,255,0.7); background:rgba(0,0,0,0.45); color:#fff;
+  font-size:11px; font-weight:700; padding:3px 16px 3px 7px; line-height:1.4;
+}
+.tooth-badge-select.has-tooth{ border-style:solid; border-color:rgba(255,255,255,0.3); background:rgba(0,0,0,0.72); }
+.file-empty-tile{
+  width:100%; padding:28px 16px; border:1.5px dashed var(--line); border-radius:10px; text-align:center;
+  color:var(--muted); font-size:12.5px; cursor:pointer;
+}
+
+/* full-screen viewer (inside the shared .modal-veil/.modal shell) */
+.file-viewer-body{ background:#15140f; border-radius:0 0 var(--radius-lg) var(--radius-lg); padding:22px; }
+.viewer-stage{ display:flex; align-items:center; justify-content:center; min-height:240px; }
+.viewer-stage img{ transition:transform .15s; }
+.viewer-toolbar{ display:flex; gap:8px; justify-content:center; margin-top:16px; flex-wrap:wrap; }
+.viewer-toolbar button{
+  background:rgba(255,255,255,0.12); color:#fff; border:none; border-radius:7px;
+  padding:0 14px; height:34px; cursor:pointer; font-size:12.5px;
+}
+.viewer-toolbar button:hover{ background:rgba(255,255,255,0.2); }
+.viewer-cap{ text-align:center; color:rgba(255,255,255,0.7); font-size:11.5px; margin-top:12px; }
+.file-viewer-body .field label{ color:rgba(255,255,255,0.6); }
+.modal.file-viewer{ overflow:hidden; }
+.modal.file-viewer .modal-head{ background:#1c1a13; border-color:#332f1e; }
+.modal.file-viewer .modal-head h3, .modal.file-viewer .modal-close{ color:#f3f0e6; }
+
 /* toast */
 #toast-host{ position:fixed; bottom:22px; right:22px; display:flex; flex-direction:column; gap:8px; z-index:200; }
 .toast{ background:var(--ink); color:var(--paper); padding:11px 16px; border-radius:9px; font-size:13px; box-shadow:var(--shadow); max-width:320px; }

@@ -94,3 +94,22 @@ CREATE INDEX IF NOT EXISTS idx_treat_doctor ON treatments(doctorId);
 CREATE INDEX IF NOT EXISTS idx_inv_doctor ON invoices(doctorId);
 CREATE INDEX IF NOT EXISTS idx_inv_patient ON invoices(patientId);
 CREATE INDEX IF NOT EXISTS idx_patient_doctor ON patients(primaryDoctorId);
+
+-- Patient photos/x-rays/CT scans. The actual bytes live on disk (see
+-- server/src/storage.js); this row is just metadata + the on-disk filename.
+CREATE TABLE IF NOT EXISTS patient_files (
+  id TEXT PRIMARY KEY,
+  patientId TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+  fileType TEXT NOT NULL DEFAULT 'photo', -- 'xray' | 'ct' | 'photo'
+  fileName TEXT NOT NULL,     -- original filename, shown to the user
+  storedName TEXT NOT NULL,   -- name on disk under UPLOADS_DIR (never exposed to the client)
+  mimeType TEXT NOT NULL DEFAULT '',
+  size INTEGER NOT NULL DEFAULT 0,
+  notes TEXT NOT NULL DEFAULT '',
+  toothNumber INTEGER,        -- FDI number, nullable — attaching to a tooth is optional
+  rotation INTEGER NOT NULL DEFAULT 0, -- 0/90/180/270, applied client-side via CSS transform
+  uploadedBy TEXT NOT NULL DEFAULT '',
+  uploadedByName TEXT NOT NULL DEFAULT '',
+  createdAt TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_patient_files_patient ON patient_files(patientId);
