@@ -85,7 +85,11 @@ function fmtMoney(n){
 }
 function pad2(n){ return n < 10 ? '0'+n : ''+n; }
 function toISODate(d){ return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate()); }
-function parseISODate(s){ var p = s.split('-'); return new Date(+p[0], +p[1]-1, +p[2]); }
+// Accepts a plain 'YYYY-MM-DD' date OR a full SQLite datetime string
+// ('YYYY-MM-DD HH:MM:SS', e.g. any raw createdAt column) — pre-existing
+// records' timestamps and the new patient-files createdAt both come back in
+// the latter form, so this strips the time part before parsing either way.
+function parseISODate(s){ var p = String(s).split(' ')[0].split('-'); return new Date(+p[0], +p[1]-1, +p[2]); }
 function todayISO(){ return toISODate(new Date()); }
 function fmtDateHuman(iso, opts){
   var d = parseISODate(iso);
@@ -194,7 +198,14 @@ var state = {
     financeFrom: null,
     financeTo: null,
     modal: null, // {type, ...}
-    theme: (function(){ try { return localStorage.getItem('dominant_theme') || 'auto'; } catch(e){ return 'auto'; } })()
+    theme: (function(){ try { return localStorage.getItem('dominant_theme') || 'auto'; } catch(e){ return 'auto'; } })(),
+    // Patient photos/x-rays: loaded lazily per patient (not part of the
+    // bootstrap payload — could get large), so tracked separately from
+    // state.data.
+    patientFiles: {},           // patientId -> array of file records
+    patientFilesLoading: {},    // patientId -> bool
+    patientFilesUploading: {},  // patientId -> bool
+    fileTypeFilter: 'all'       // 'all' | 'xray' | 'photo' — gallery filter
   },
   _dirty: false,
   _renderTimer: null
@@ -272,6 +283,256 @@ var DataAPI = {
   }
 };
 
+/* ==== PATIENT FILES (photos / x-rays) ==== */
+// Separate from DataAPI: uploads are multipart/form-data (must NOT set a
+// Content-Type header manually — the browser sets multipart/form-data with
+// the correct boundary itself), and raw bytes are fetched as a blob rather
+// than JSON.
+var PatientFilesAPI = {
+  list: function(patientId){ return apiFetch('/patient-files/patient/' + patientId); },
+  upload: function(patientId, formData){
+    var headers = {};
+    if (state.token) headers['Authorization'] = 'Bearer ' + state.token;
+    return fetch(API_BASE + '/patient-files/patient/' + patientId, { method: 'POST', headers: headers, body: formData })
+      .then(function(res){
+        return res.json().catch(function(){ return null; }).then(function(body){
+          if (!res.ok) throw new Error((body && body.message) || 'Не удалось загрузить файл');
+          return body;
+        });
+      });
+  },
+  rotate: function(id, direction){
+    return apiFetch('/patient-files/' + id + '/rotate', { method: 'PATCH', body: JSON.stringify({ direction: direction }) });
+  },
+  setTooth: function(id, toothNumber){
+    return apiFetch('/patient-files/' + id, { method: 'PATCH', body: JSON.stringify({ toothNumber: toothNumber }) });
+  },
+  remove: function(id){ return apiFetch('/patient-files/' + id, { method: 'DELETE' }); },
+  rawUrl: function(id){ return API_BASE + '/patient-files/' + id + '/raw'; }
+};
+
+// fileId -> object URL string, or 'loading' / 'error'. Kept outside `state`
+// on purpose — blob: URLs aren't meaningful to serialize/restore and don't
+// need to trigger anything; render() just reads this cache synchronously.
+var fileBlobCache = {};
+
+function ensureFileBlob(fileId){
+  if (fileBlobCache[fileId]) return;
+  fileBlobCache[fileId] = 'loading';
+  fetch(PatientFilesAPI.rawUrl(fileId), { headers: authHeaders() }).then(function(res){
+    if (!res.ok) throw new Error('fetch failed');
+    return res.blob();
+  }).then(function(blob){
+    fileBlobCache[fileId] = URL.createObjectURL(blob);
+    scheduleRenderDebounced();
+  }).catch(function(){
+    fileBlobCache[fileId] = 'error';
+    scheduleRenderDebounced();
+  });
+}
+
+function revokeFileBlob(fileId){
+  var url = fileBlobCache[fileId];
+  if (url && typeof url === 'string' && url !== 'loading' && url !== 'error') {
+    try { URL.revokeObjectURL(url); } catch (e) {}
+  }
+  delete fileBlobCache[fileId];
+}
+
+function loadPatientFiles(patientId){
+  if (state.ui.patientFilesLoading[patientId]) return;
+  state.ui.patientFilesLoading[patientId] = true;
+  PatientFilesAPI.list(patientId).then(function(list){
+    state.ui.patientFiles[patientId] = list;
+    state.ui.patientFilesLoading[patientId] = false;
+    scheduleRenderDebounced();
+  }).catch(function(){
+    state.ui.patientFilesLoading[patientId] = false;
+    toast('Не удалось загрузить список файлов', true);
+    scheduleRenderDebounced();
+  });
+}
+
+function findCachedFile(fileId){
+  var found = null;
+  Object.keys(state.ui.patientFiles).forEach(function(pid){
+    (state.ui.patientFiles[pid] || []).forEach(function(f){ if (f.id === fileId) found = f; });
+  });
+  return found;
+}
+
+function updateCachedFile(rec){
+  if (!rec) return;
+  var arr = state.ui.patientFiles[rec.patientId];
+  if (!arr) return;
+  var idx = arr.findIndex(function(x){ return x.id === rec.id; });
+  if (idx >= 0) arr[idx] = rec;
+}
+
+function removeCachedFile(fileId){
+  Object.keys(state.ui.patientFiles).forEach(function(pid){
+    state.ui.patientFiles[pid] = (state.ui.patientFiles[pid] || []).filter(function(f){ return f.id !== fileId; });
+  });
+  revokeFileBlob(fileId);
+}
+
+function uploadPatientFiles(patientId, files, fileType){
+  state.ui.patientFilesUploading[patientId] = true;
+  render();
+  var chain = Promise.resolve();
+  var okCount = 0;
+  files.forEach(function(file){
+    chain = chain.then(function(){
+      var fd = new FormData();
+      fd.append('file', file);
+      fd.append('fileType', fileType);
+      return PatientFilesAPI.upload(patientId, fd).then(function(rec){
+        if (!state.ui.patientFiles[patientId]) state.ui.patientFiles[patientId] = [];
+        state.ui.patientFiles[patientId].unshift(rec);
+        okCount++;
+      }).catch(function(e){
+        toast((e && e.message) || ('Не удалось загрузить файл «' + file.name + '»'), true);
+      });
+    });
+  });
+  chain.then(function(){
+    state.ui.patientFilesUploading[patientId] = false;
+    render();
+    if (okCount) toast(okCount > 1 ? (okCount + ' файлов загружено') : 'Файл загружен');
+  });
+}
+
+function downloadPatientFile(fileId){
+  var f = findCachedFile(fileId);
+  fetch(PatientFilesAPI.rawUrl(fileId), { headers: authHeaders() }).then(function(res){
+    if (!res.ok) throw new Error('fetch failed');
+    return res.blob();
+  }).then(function(blob){
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url; a.download = (f && f.fileName) || 'file';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+  }).catch(function(){ toast('Не удалось скачать файл', true); });
+}
+
+function isImageFile(f){
+  return /^image\//.test(f.mimeType || '') || /\.(jpe?g|png|webp|heic|heif)$/i.test(f.fileName || '');
+}
+
+function toothOptionsHTML(selected){
+  var groups = [['Верхняя правая', UPPER_RIGHT], ['Верхняя левая', UPPER_LEFT], ['Нижняя правая', LOWER_RIGHT], ['Нижняя левая', LOWER_LEFT]];
+  return '<option value="">+ зуб</option>' + groups.map(function(g){
+    return '<optgroup label="' + g[0] + '">' + g[1].map(function(t){
+      return '<option value="' + t + '"' + (String(selected) === String(t) ? ' selected' : '') + '>' + t + '</option>';
+    }).join('') + '</optgroup>';
+  }).join('');
+}
+
+function toothBadgeHTML(f){
+  return '<select class="tooth-badge-select' + (f.toothNumber ? ' has-tooth' : '') + '" data-action="file-tooth-select" data-id="' + f.id + '" title="' + (f.toothNumber ? 'Зуб №' + f.toothNumber : 'Номер зуба не указан') + '">' + toothOptionsHTML(f.toothNumber) + '</select>';
+}
+
+function fileActionsHTML(f, canDelete){
+  var del = canDelete ? '<button class="danger" data-action="delete-file" data-id="' + f.id + '" title="Удалить">🗑</button>' : '';
+  if (!isImageFile(f)) return '<div class="file-actions">' + del + '</div>';
+  return '<div class="file-actions">'
+    + '<button data-action="file-rotate" data-id="' + f.id + '" data-dir="left" title="Повернуть влево">⟲</button>'
+    + '<button data-action="file-rotate" data-id="' + f.id + '" data-dir="right" title="Повернуть вправо">⟳</button>'
+    + del + '</div>';
+}
+
+function fileImgHTML(id, rotation){
+  var url = fileBlobCache[id];
+  if (!url || url === 'loading') { ensureFileBlob(id); return '<div class="doc-ic" style="font-size:12px;opacity:.6;">Загрузка…</div>'; }
+  if (url === 'error') return '<div class="doc-ic" title="Не удалось загрузить">⚠</div>';
+  var sideways = rotation === 90 || rotation === 270;
+  return '<img src="' + url + '" alt="" style="transform:rotate(' + rotation + 'deg);' + (sideways ? 'width:auto;height:130%;max-width:none;' : '') + '">';
+}
+
+function fileTileHTML(f, canDelete){
+  var rotation = f.rotation || 0;
+  var img = isImageFile(f) ? fileImgHTML(f.id, rotation) : '<div class="doc-ic">📄</div>';
+  return '<div class="file-tile" data-action="open-file-preview" data-id="' + f.id + '">'
+    + img
+    + toothBadgeHTML(f)
+    + fileActionsHTML(f, canDelete)
+    + '<div class="file-cap"><span>' + fmtDateShort(f.createdAt) + '</span><span>' + (f.toothNumber ? 'зуб ' + f.toothNumber : '') + '</span></div>'
+    + '</div>';
+}
+
+function patientGalleryHTML(patient, idn){
+  var pid = patient.id;
+  var canDelete = idn.role !== 'reception';
+  if (!state.ui.patientFiles[pid] && !state.ui.patientFilesLoading[pid]) loadPatientFiles(pid);
+
+  var filter = state.ui.fileTypeFilter || 'all';
+  var all = state.ui.patientFiles[pid] || [];
+  var list = all.filter(function(f){
+    if (filter === 'all') return true;
+    if (filter === 'xray') return f.fileType === 'xray' || f.fileType === 'ct';
+    return f.fileType === 'photo';
+  }).slice().sort(function(a, b){ return b.createdAt.localeCompare(a.createdAt); });
+
+  var seg = '<div class="seg file-type-seg">' + [['all', 'Все'], ['xray', 'Рентген / КТ'], ['photo', 'Фото']].map(function(x){
+    return '<button class="' + (filter === x[0] ? 'active' : '') + '" data-action="file-filter" data-filetype="' + x[0] + '">' + x[1] + '</button>';
+  }).join('') + '</div>';
+
+  var uploading = !!state.ui.patientFilesUploading[pid];
+  var uploadBtns = '<div style="display:flex;gap:8px;flex-wrap:wrap;">'
+    + '<button class="btn gold sm" data-action="file-upload-trigger" data-patient="' + pid + '" data-filetype="xray"' + (uploading ? ' disabled' : '') + '>' + (uploading ? 'Загрузка…' : '+ Рентген / КТ') + '</button>'
+    + '<button class="btn sm" data-action="file-upload-trigger" data-patient="' + pid + '" data-filetype="photo"' + (uploading ? ' disabled' : '') + '>' + (uploading ? 'Загрузка…' : '+ Фото') + '</button>'
+    + '<input id="file-upload-input" data-action="file-upload-input" data-patient="' + pid + '" type="file" accept=".jpg,.jpeg,.png,.webp,.pdf,.heic,.heif" multiple style="display:none;">'
+    + '</div>';
+
+  var head = '<div class="section-head"><h2 style="font-size:16px;">Фото и рентген</h2>' + uploadBtns + '</div>';
+
+  if (state.ui.patientFilesLoading[pid] && !all.length) {
+    return head + seg + '<div class="empty-state"><div class="glyph">🦴</div><div class="t">Загрузка…</div></div>';
+  }
+  if (!list.length) {
+    return head + seg + '<div class="file-empty-tile" data-action="file-upload-trigger" data-patient="' + pid + '" data-filetype="' + (filter === 'photo' ? 'photo' : 'xray') + '">'
+      + '<div style="font-size:22px;margin-bottom:6px;">🦴</div>' + (all.length ? 'Нет файлов в этой категории' : 'Файлов пока нет — нажмите, чтобы загрузить') + '</div>';
+  }
+  return head + seg + '<div class="file-grid">' + list.map(function(f){ return fileTileHTML(f, canDelete); }).join('') + '</div>';
+}
+
+function filePreviewModalBody(f, m){
+  var zoom = m.zoom || 1;
+  var rotation = f.rotation || 0;
+  var sideways = rotation === 90 || rotation === 270;
+  var isImg = isImageFile(f);
+  var stageContent;
+  if (isImg) {
+    var url = fileBlobCache[f.id];
+    if (!url || url === 'loading') { ensureFileBlob(f.id); stageContent = '<div style="color:#fff;">Загрузка…</div>'; }
+    else if (url === 'error') stageContent = '<div style="color:#fff;">Не удалось загрузить файл</div>';
+    else stageContent = '<img src="' + url + '" alt="" style="transform:rotate(' + rotation + 'deg) scale(' + zoom + ');max-width:' + (sideways ? '65vh' : '86vw') + ';max-height:' + (sideways ? '86vw' : '65vh') + ';">';
+  } else {
+    stageContent = '<div style="color:#fff;text-align:center;"><div style="font-size:44px;margin-bottom:10px;">📄</div>' + esc(f.fileName) + '</div>';
+  }
+  var toolbar = '<div class="viewer-toolbar">'
+    + (isImg
+      ? '<button data-action="file-rotate" data-id="' + f.id + '" data-dir="left">⟲ Повернуть</button>'
+        + '<button data-action="file-rotate" data-id="' + f.id + '" data-dir="right">⟳ Повернуть</button>'
+        + '<button data-action="file-zoom-out">− Уменьшить</button>'
+        + '<button data-action="file-zoom-reset">' + Math.round(zoom * 100) + '%</button>'
+        + '<button data-action="file-zoom-in">+ Увеличить</button>'
+      : '')
+    + '<button data-action="file-download" data-id="' + f.id + '">⬇ Скачать</button>'
+    + '</div>';
+  var toothField = '<div class="field" style="max-width:220px;margin:16px auto 0;">'
+    + '<label>Привязать к зубу</label>'
+    + '<select data-action="file-tooth-select" data-id="' + f.id + '">' + toothOptionsHTML(f.toothNumber) + '</select>'
+    + '</div>';
+  return '<div class="modal-body file-viewer-body">'
+    + '<div class="viewer-stage">' + stageContent + '</div>'
+    + toolbar
+    + '<div class="viewer-cap">' + esc(f.fileName) + ' · ' + fmtDateShort(f.createdAt) + (f.uploadedByName ? ' · ' + esc(f.uploadedByName) : '') + '</div>'
+    + toothField
+    + '</div>';
+}
+
 function afterRemoteChange(){
   if (!state.ready) return;
   if (state.ui.modal) { state._dirty = true; return; }
@@ -289,6 +550,15 @@ function scheduleRenderDebounced(){
 function refetchCollection(col){
   if (col === 'settings') {
     return apiFetch('/settings').then(function(s){ state.data.settings = s; afterRemoteChange(); }).catch(function(){});
+  }
+  if (col === 'patientFiles') {
+    // Refresh whichever patients' file lists are already cached (i.e. their
+    // gallery tab has been opened), so a change made elsewhere shows up
+    // without the user having to reload.
+    Object.keys(state.ui.patientFiles).forEach(function(pid){
+      apiFetch('/patient-files/patient/' + pid).then(function(rows){ state.ui.patientFiles[pid] = rows; afterRemoteChange(); }).catch(function(){});
+    });
+    return;
   }
   if (!COLLECTION_ENDPOINT[col]) return;
   return apiFetch('/' + COLLECTION_ENDPOINT[col]).then(function(rows){ state.data[col] = rows; afterRemoteChange(); }).catch(function(){});
@@ -887,13 +1157,14 @@ function renderPatientCard(patientId){
   var canEditContact = idn.role !== 'doctor';
   var canEditTeeth = idn.role !== 'reception';
   var tab = state.ui.patientTab;
-  var tabs = [['overview','Обзор'],['odonto','Одонтограмма'],['history','История лечения'],['invoices','Счета']];
+  var tabs = [['overview','Обзор'],['odonto','Одонтограмма'],['gallery','Фото и рентген'],['history','История лечения'],['invoices','Счета']];
   var tabsHtml = '<div class="tabs">' + tabs.map(function(t){
     return '<button class="tab-btn' + (tab===t[0]?' active':'') + '" data-action="patient-tab" data-tab="'+t[0]+'">'+t[1]+'</button>';
   }).join('') + '</div>';
   var body;
   if (tab === 'overview') body = patientOverviewHTML(patient, canEditContact);
   else if (tab === 'odonto') body = '<div class="card card-pad">' + toothChartHTML(patient, !canEditTeeth) + '</div>';
+  else if (tab === 'gallery') body = patientGalleryHTML(patient, idn);
   else if (tab === 'history') body = treatmentHistoryHTML(patient, idn.role !== 'reception');
   else body = patientInvoicesHTML(patient, idn);
 
@@ -1131,6 +1402,14 @@ function renderModal(){
     case 'service': title = m.id ? 'Услуга' : 'Новая услуга'; body = serviceModalBody(m); break;
     case 'staff': title = m.id ? 'Сотрудник' : 'Новый сотрудник'; body = staffModalBody(m); break;
     case 'expense': title = 'Новый расход'; body = expenseModalBody(m); break;
+    case 'file-preview': {
+      var fpFile = findCachedFile(m.fileId);
+      if (!fpFile) { state.ui.modal = null; return ''; }
+      title = fpFile.fileType === 'photo' ? 'Фото' : 'Рентген / КТ';
+      body = filePreviewModalBody(fpFile, m);
+      wide = true;
+      break;
+    }
     case 'confirm':
       title = 'Подтверждение';
       body = '<div class="modal-body">' + esc(m.message) + '</div>'
@@ -1138,7 +1417,8 @@ function renderModal(){
       break;
     default: return '';
   }
-  return '<div class="modal-veil" data-action="modal-veil"><div class="modal' + (wide?' wide':'') + '">'
+  var darkHead = m.type === 'file-preview';
+  return '<div class="modal-veil" data-action="modal-veil"><div class="modal' + (wide?' wide':'') + (darkHead?' file-viewer':'') + '">'
     + '<div class="modal-head"><h3>' + esc(title) + '</h3><button class="modal-close" data-action="modal-close">✕</button></div>'
     + body
     + '</div></div>';
@@ -1522,6 +1802,8 @@ document.body.addEventListener('click', function(e){
       state.data = { settings: null, doctors: [], staff: [], patients: [], appointments: [], invoices: [], expenses: [], treatments: [] };
       state.route = { view: 'login' };
       state.ui.loginSelected = null; state.ui.pinBuf=''; state.ui.pinError='';
+      state.ui.patientFiles = {}; state.ui.patientFilesLoading = {}; state.ui.patientFilesUploading = {};
+      Object.keys(fileBlobCache).forEach(revokeFileBlob);
       render();
       loadLoginOptions();
       break;
@@ -1579,6 +1861,42 @@ document.body.addEventListener('click', function(e){
     case 'open-invoice-modal':
       state.ui.modal = { type:'invoice-new', patientId: el.dataset.patient || '', doctorId: state.identity.role==='doctor' ? state.identity.doctorId : '', items:[{name:'',tooth:'',qty:1,price:0}], discountPct:0 };
       render(); break;
+
+    case 'file-filter':
+      state.ui.fileTypeFilter = el.dataset.filetype; render(); break;
+    case 'file-upload-trigger': {
+      var uploadInput = document.getElementById('file-upload-input');
+      if (uploadInput) { uploadInput.dataset.filetype = el.dataset.filetype; uploadInput.click(); }
+      break;
+    }
+    case 'open-file-preview':
+      state.ui.modal = { type:'file-preview', fileId: el.dataset.id, zoom: 1 };
+      render(); break;
+    case 'file-rotate': {
+      var rotId = el.dataset.id, rotDir = el.dataset.dir;
+      PatientFilesAPI.rotate(rotId, rotDir).then(function(updated){ updateCachedFile(updated); render(); })
+        .catch(function(e){ toast((e && e.message) || 'Не удалось повернуть снимок', true); });
+      break;
+    }
+    case 'delete-file': {
+      var delFileId = el.dataset.id;
+      askConfirm('Удалить файл?', function(){
+        PatientFilesAPI.remove(delFileId).then(function(){
+          removeCachedFile(delFileId);
+          if (state.ui.modal && state.ui.modal.type === 'file-preview' && state.ui.modal.fileId === delFileId) state.ui.modal = null;
+          render(); toast('Файл удалён');
+        }).catch(function(e){ toast((e && e.message) || 'Не удалось удалить файл', true); });
+      });
+      break;
+    }
+    case 'file-zoom-in':
+      if (state.ui.modal) { state.ui.modal.zoom = Math.min(4, (state.ui.modal.zoom || 1) + 0.5); render(); } break;
+    case 'file-zoom-out':
+      if (state.ui.modal) { state.ui.modal.zoom = Math.max(0.5, (state.ui.modal.zoom || 1) - 0.5); render(); } break;
+    case 'file-zoom-reset':
+      if (state.ui.modal) { state.ui.modal.zoom = 1; render(); } break;
+    case 'file-download':
+      downloadPatientFile(el.dataset.id); break;
 
     case 'modal-close': closeModal(); break;
     case 'confirm-yes': {
@@ -1712,6 +2030,19 @@ document.body.addEventListener('change', function(e){
         newFields.style.display = el.value === '__new__' ? '' : 'none';
         if (el.value === '__new__') { var nameInput = newFields.querySelector('[name="newPatientName"]'); if (nameInput) nameInput.focus(); }
       }
+      break;
+    }
+    case 'file-upload-input': {
+      var pickedFiles = Array.prototype.slice.call(el.files || []);
+      if (pickedFiles.length) uploadPatientFiles(el.dataset.patient, pickedFiles, el.dataset.filetype || 'photo');
+      el.value = '';
+      break;
+    }
+    case 'file-tooth-select': {
+      var toothFileId = el.dataset.id;
+      var toothVal = el.value === '' ? null : Number(el.value);
+      PatientFilesAPI.setTooth(toothFileId, toothVal).then(function(updated){ updateCachedFile(updated); render(); })
+        .catch(function(e){ toast((e && e.message) || 'Не удалось сохранить номер зуба', true); });
       break;
     }
   }

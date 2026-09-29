@@ -22,6 +22,7 @@ app.use('/api/appointments', require('./routes/appointments'));
 app.use('/api/treatments', require('./routes/treatments'));
 app.use('/api/invoices', require('./routes/invoices'));
 app.use('/api/expenses', require('./routes/expenses'));
+app.use('/api/patient-files', require('./routes/patientFiles'));
 app.use('/api/settings', require('./routes/settings'));
 
 app.get('/api/health', (req, res) => res.json({ ok: true, ts: Date.now() }));

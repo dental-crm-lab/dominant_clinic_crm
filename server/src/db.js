@@ -16,4 +16,4 @@ function genId(prefix) {
   return (prefix ? prefix + '_' : '') + require('crypto').randomUUID().replace(/-/g, '').slice(0, 20);
 }
 
-module.exports = { db, genId };
+module.exports = { db, genId, DB_PATH };

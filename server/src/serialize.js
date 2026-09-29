@@ -46,4 +46,15 @@ function settingsOut(s) {
   return { name: s.name, phone: s.phone, address: s.address, hours: s.hours, services: safeParse(s.services, []) };
 }
 
-module.exports = { safeParse, doctorOut, staffOut, patientOut, appointmentOut, treatmentOut, invoiceOut, expenseOut, settingsOut };
+// storedName (the on-disk filename) is deliberately left out — the client
+// never needs it, it only ever asks for bytes by file id via /raw.
+function patientFileOut(f) {
+  return {
+    id: f.id, patientId: f.patientId, fileType: f.fileType, fileName: f.fileName,
+    mimeType: f.mimeType, size: f.size, notes: f.notes, toothNumber: f.toothNumber,
+    rotation: f.rotation || 0, uploadedBy: f.uploadedBy, uploadedByName: f.uploadedByName,
+    createdAt: f.createdAt
+  };
+}
+
+module.exports = { safeParse, doctorOut, staffOut, patientOut, appointmentOut, treatmentOut, invoiceOut, expenseOut, settingsOut, patientFileOut };
