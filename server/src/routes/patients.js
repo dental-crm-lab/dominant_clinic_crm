@@ -21,9 +21,13 @@ router.get('/', (req, res) => {
   res.json(rows.map(patientOut));
 });
 
-router.post('/', requireRole('admin', 'reception'), (req, res) => {
+// Doctors may register a walk-in patient while booking an appointment. The
+// patient is attached to them as primary doctor; otherwise it would be
+// invisible to them (see accessiblePatientIds) until an appointment exists.
+router.post('/', requireRole('admin', 'reception', 'doctor'), (req, res) => {
   const b = req.body || {};
   if (!b.fullName) return res.status(400).json({ error: 'bad_request', message: 'Укажите ФИО пациента' });
+  if (req.user.role === 'doctor') b.primaryDoctorId = req.user.doctorId;
   const id = genId('pat');
   db.prepare(`INSERT INTO patients (id, fullName, phone, birthDate, gender, address, allergies, notes, teeth, primaryDoctorId)
     VALUES (?,?,?,?,?,?,?,?,?,?)`)

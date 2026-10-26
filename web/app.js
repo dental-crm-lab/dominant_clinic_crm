@@ -59,7 +59,8 @@ var NAV = {
   reception: [
     { id:'calendar', label:'Календарь', ic:'▦' },
     { id:'patients', label:'Пациенты', ic:'☺' },
-    { id:'invoices', label:'Счета и оплаты', ic:'$' }
+    { id:'invoices', label:'Счета и оплаты', ic:'$' },
+    { id:'settings', label:'Настройки', ic:'⚙' }
   ],
   doctor: [
     { id:'calendar', label:'Мой календарь', ic:'▦' },
@@ -189,6 +190,8 @@ var state = {
     calDate: todayISO(),
     calMode: 'day',
     calDoctorFilter: 'all',
+    calMobileKey: null,
+    menuOpen: false,
     patientSearch: '',
     selectedPatientId: null,
     patientTab: 'overview',
@@ -616,7 +619,8 @@ function renderShell(nav){
   var view = state.route.view;
   var noScroll = view === 'calendar';
   return ''
-  + '<div id="app-screen">'
+  + '<div id="app-screen"' + (state.ui.menuOpen ? ' class="menu-open"' : '') + '>'
+  + '<div class="drawer-veil" data-action="close-menu"></div>'
   +   '<aside class="sidebar">'
   +     '<div class="sidebar-mark"><div class="word">Dominant</div><div class="sub">Dental Clinic CRM</div></div>'
   +     '<nav class="side-nav">'
@@ -626,14 +630,13 @@ function renderShell(nav){
             }).join('')
   +     '</nav>'
   +     '<div class="side-foot">'
-  +       renderThemeSwitch()
   +       '<div class="side-user"><span class="login-avatar" style="' + avatarStyle(idn.name) + '">' + esc(initials(idn.name)) + '</span>'
   +         '<div><div class="name">' + esc(idn.name) + '</div><div class="role">' + esc(roleLabel) + '</div></div></div>'
   +       '<button class="logout-btn" data-action="logout" title="Выйти"><span class="ic">⎋</span><span class="lbl">Выйти</span></button>'
   +     '</div>'
   +   '</aside>'
   +   '<div class="main">'
-  +     '<div class="topbar"><div><h1>' + esc(viewTitle(view)) + '</h1><div class="meta">' + esc(viewSubtitle()) + (state.online ? '' : ' · автономный демо-режим') + '</div></div>'
+  +     '<div class="topbar"><button class="menu-btn" data-action="toggle-menu" aria-label="Меню">☰</button><div class="topbar-title"><h1>' + esc(viewTitle(view)) + '</h1><div class="meta">' + esc(viewSubtitle()) + (state.online ? '' : ' · автономный демо-режим') + '</div></div>'
   +       '<div class="topbar-actions">' + renderTopbarActions(view) + '</div>'
   +     '</div>'
   +     '<div class="view-body' + (noScroll ? ' no-scroll' : '') + '" id="view-body">' + renderView(view) + '</div>'
@@ -933,6 +936,10 @@ function colHeadDay(iso){
   return '<div class="cal-col-head" style="'+(isToday?'background:var(--gold-tint);':'')+'"><div class="dname">'+fmtWeekday(iso)+'</div><div class="dnum" style="'+(isToday?'color:var(--gold-strong);':'')+'">'+parseISODate(iso).getDate()+'</div></div>';
 }
 
+var MOBILE_BP = 760;
+function isMobileView(){
+  return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: ' + MOBILE_BP + 'px)').matches;
+}
 function renderCalendar(){
   var idn = state.identity;
   var ui = state.ui;
@@ -961,7 +968,30 @@ function renderCalendar(){
     return '<div class="cal-wrap"><div class="empty-state" style="margin:auto;"><div class="glyph">▦</div><div class="t">Нет активных врачей</div><div class="hint">Добавьте врача в разделе «Врачи»</div></div></div>';
   }
 
-  var gridTemplate = '56px repeat(' + columns.length + ', minmax(150px,1fr))';
+  // On phones show one column at a time (doctor in day mode, weekday in week
+  // mode) with a switcher, instead of a grid that needs horizontal scrolling.
+  var mobileSwitcher = '';
+  if (isMobileView() && columns.length > 1) {
+    var keyOf = function(c){ return mode === 'day' ? c.doctorId : c.date; };
+    var keys = columns.map(keyOf);
+    if (keys.indexOf(ui.calMobileKey) < 0) {
+      ui.calMobileKey = (mode === 'week' && keys.indexOf(todayISO()) >= 0) ? todayISO() : keys[0];
+    }
+    mobileSwitcher = '<div class="cal-mobile-switch ' + mode + '">' + columns.map(function(c){
+      var k = keyOf(c), active = k === ui.calMobileKey;
+      var inner;
+      if (mode === 'day') {
+        var dr = state.data.doctors.find(function(d){ return d.id === c.doctorId; }) || {};
+        inner = '<span class="dot" style="background:' + doctorColor(c.doctorId) + ';"></span>' + esc(dr.name || '');
+      } else {
+        inner = '<span class="dn">' + fmtWeekday(c.date) + '</span><span class="dd">' + parseISODate(c.date).getDate() + '</span>';
+      }
+      return '<button class="' + (active ? 'active' : '') + (mode === 'week' && c.date === todayISO() ? ' today' : '') + '" data-action="cal-mobile-col" data-key="' + k + '">' + inner + '</button>';
+    }).join('') + '</div>';
+    columns = columns.filter(function(c){ return keyOf(c) === ui.calMobileKey; });
+  }
+
+  var gridTemplate = isMobileView() ? '44px minmax(0,1fr)' : '56px repeat(' + columns.length + ', minmax(150px,1fr))';
   var headerCells = '<div class="cal-col-head"></div>' + columns.map(function(c){ return c.head; }).join('');
   var timeCells = '';
   for (var s=0; s<SLOTS_PER_DAY; s++){
@@ -1013,7 +1043,7 @@ function renderCalendar(){
       return '<div class="legend-item"><span class="dot" style="background:'+badgeColorVar(APPT_STATUS[k].badge)+';"></span>'+APPT_STATUS[k].label+'</div>';
     }).join('') + '</div>';
 
-  return '<div class="cal-wrap">' + toolbar
+  return '<div class="cal-wrap">' + toolbar + mobileSwitcher
     + '<div class="cal-scroll"><div class="cal-grid" style="grid-template-columns:'+gridTemplate+';">'
     +   headerCells + '<div class="cal-time-col">' + timeCells + '</div>' + colsHtml
     + '</div></div>' + legend + '</div>';
@@ -1336,7 +1366,18 @@ function renderFinance(){
 }
 
 /* ==== RENDER: SETTINGS/PROFILE ==== */
+function renderThemeCard(){
+  var cur = THEMES.find(function(t){ return t.id === state.ui.theme; }) || THEMES[0];
+  return '<div class="card card-pad theme-card" style="margin-bottom:20px;max-width:720px;">'
+    + '<h2 style="font-size:16px;margin-bottom:6px;">Оформление</h2>'
+    + '<div class="hint" style="margin-bottom:12px;">Цветовая тема интерфейса: ' + esc(cur.label) + '</div>'
+    + renderThemeSwitch()
+    + '</div>';
+}
+
 function renderSettings(){
+  // Only admins manage the clinic; other roles reaching this view get appearance only.
+  if (state.identity.role !== 'admin') return renderThemeCard();
   var s = state.data.settings || {};
   var services = (s.services||[]).slice().sort(function(a,b){ return (a.category||'').localeCompare(b.category||'','ru') || (a.name||'').localeCompare(b.name||'','ru'); });
 
@@ -1367,13 +1408,13 @@ function renderSettings(){
   }).join('');
   var staffBlock = '<div><div class="section-head"><h2 style="font-size:16px;">Персонал и PIN-коды</h2><button class="btn gold sm" data-action="open-staff-modal">+ Сотрудник</button></div>' + staffCards + '</div>';
 
-  return infoForm + svcBlock + staffBlock;
+  return renderThemeCard() + infoForm + svcBlock + staffBlock;
 }
 
 function renderProfile(){
   var idn = state.identity;
   var d = state.data.doctors.find(function(x){ return x.id===idn.doctorId; }) || {};
-  return '<div class="card card-pad" style="max-width:520px;">'
+  return '<div class="card card-pad" style="max-width:520px;margin-bottom:20px;">'
     + '<div class="patient-header"><span class="login-avatar" style="background:' + (d.color||'#a8823f') + ';width:52px;height:52px;font-size:20px;">' + esc(initials(d.name||'')) + '</span>'
     +   '<div><h2>' + esc(d.name||'') + '</h2><div class="sub">' + esc(d.specialty||'') + '</div></div></div>'
     + '<div style="margin-top:16px;display:flex;flex-direction:column;gap:12px;">'
@@ -1384,7 +1425,8 @@ function renderProfile(){
     +   '<div class="field"><label>Новый PIN-код (4 цифры)</label><input name="pin" maxlength="4" pattern="[0-9]{4}" placeholder="Оставьте пустым, чтобы не менять"></div>'
     +   '<button class="btn gold sm" type="submit">Сохранить PIN</button>'
     + '</form>'
-    + '</div>';
+    + '</div>'
+    + renderThemeCard();
 }
 
 /* ==== MODALS ==== */
@@ -1791,12 +1833,26 @@ document.body.addEventListener('click', function(e){
   var action = el.dataset.action;
 
   switch (action){
+    case 'toggle-menu':
+      state.ui.menuOpen = !state.ui.menuOpen;
+      var appScreen = document.getElementById('app-screen');
+      if (appScreen) appScreen.classList.toggle('menu-open', state.ui.menuOpen);
+      break;
+    case 'close-menu':
+      state.ui.menuOpen = false;
+      var appScreen2 = document.getElementById('app-screen');
+      if (appScreen2) appScreen2.classList.remove('menu-open');
+      break;
+    case 'cal-mobile-col':
+      state.ui.calMobileKey = el.dataset.key; render(); break;
     case 'nav':
+      state.ui.menuOpen = false;
       state.route = { view: el.dataset.view };
       if (el.dataset.view === 'patients') state.ui.selectedPatientId = null;
       render();
       break;
     case 'logout':
+      state.ui.menuOpen = false;
       clearSession();
       disconnectSocket();
       state.data = { settings: null, doctors: [], staff: [], patients: [], appointments: [], invoices: [], expenses: [], treatments: [] };
@@ -2075,7 +2131,15 @@ document.body.addEventListener('submit', function(e){
     if (chosenPatientId === '__new__') {
       var newPatientName = (fd.get('newPatientName') || '').trim();
       if (!newPatientName) { toast('Введите ФИО нового пациента', true); return; }
-      patientIdPromise = DataAPI.add('patients', { fullName: newPatientName, phone: (fd.get('newPatientPhone') || '').trim() });
+      patientIdPromise = DataAPI.add('patients', { fullName: newPatientName, phone: (fd.get('newPatientPhone') || '').trim() }).then(function(newId){
+        // Pin the form to the created patient so a failed booking (e.g. time
+        // conflict) can be retried without registering the patient twice.
+        var sel = form.elements.patientId, opt = document.createElement('option');
+        opt.value = newId; opt.textContent = newPatientName;
+        sel.appendChild(opt); sel.value = newId;
+        var nf = document.getElementById('appt-new-patient-fields'); if (nf) nf.style.display = 'none';
+        return newId;
+      });
     } else {
       patientIdPromise = Promise.resolve(chosenPatientId);
     }
@@ -2221,5 +2285,24 @@ function initData(){
     loadLoginOptions();
   }
 }
+
+// Crossing the phone breakpoint changes the calendar layout and drawer state.
+if (typeof window.matchMedia === 'function') {
+  var mobileMQ = window.matchMedia('(max-width: ' + MOBILE_BP + 'px)');
+  var onMobileChange = function(){
+    state.ui.menuOpen = false;
+    if (state.ready && state.identity && !state.ui.modal) render();
+  };
+  if (mobileMQ.addEventListener) mobileMQ.addEventListener('change', onMobileChange);
+  else if (mobileMQ.addListener) mobileMQ.addListener(onMobileChange);
+}
+
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape' && state.ui.menuOpen) {
+    state.ui.menuOpen = false;
+    var appEl = document.getElementById('app-screen');
+    if (appEl) appEl.classList.remove('menu-open');
+  }
+});
 
 initData();
